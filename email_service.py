@@ -1,0 +1,112 @@
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import secrets
+import os
+from dotenv import load_dotenv
+import sqlite3
+from datetime import datetime
+
+load_dotenv()
+
+class EmailService:
+    def __init__(self, db_name='チャリンジャー.db'):
+        self.db_name = db_name
+        self.sender_email = os.getenv('GMAIL_ADDRESS')
+        self.sender_password = os.getenv('GMAIL_PASSWORD')
+        self.app_url = os.getenv('APP_URL')
+    
+    def generate_approval_token(self, execution_id):
+        """承認トークンを生成してDBに保存"""
+        token = secrets.token_urlsafe(32)
+
+        conn = sqlite3.connect(self.db_name)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO ApprovalToken (execution_id, token, created_at)
+            VALUES (?, ?, ?)
+            """, (execution_id, token, datetime.now()))
+        conn.commit()
+        conn.close()
+        return token
+    
+    def send_approval_email(self, execution_id, parent_email):
+        """承認依頼メールを送信"""
+        conn = sqlite3.connect(self.db_name)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT q.title, q.description, q.reward_amount, u.name
+            FROM QuestExecution qe
+            JOIN Quest q ON qe.quest_id = q.quest_id
+            JOIN User u ON qe.assigned_to = u.user_id
+            WHERE qe.execution_id = ?
+        """, (execution_id,))
+        quest_data = cur.fetchone()
+        conn.close()
+
+        if not quest_data:
+            return False
+
+        title, description, reward, child_name = quest_data
+
+        token = self.generate_approval_token(execution_id)
+
+        message = MIMEMultipart('alternative')
+        message['Subject'] = f"【承認依頼】{title}が完了報告されました"
+        message['From'] = self.sender_email
+        message['To'] = parent_email
+
+        approval_url = f"{self.app_url}/?approval_token={token}"
+
+        # HTML本文
+        html = f"""
+        <html>
+          <body>
+            <h2>クエスト完了の承認依頼</h2>
+            <p>{child_name}さんが以下のクエストを完了したと報告しています：</p>
+            
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 20px 0;">
+                <h3>{title}</h3>
+                <p><strong>詳細:</strong> {description}</p>
+                <p><strong>報酬:</strong> {reward}ポイント</p>
+            </div>
+            
+            <p>内容を確認して問題なければ、以下のボタンをクリックして承認してください：</p>
+            
+            <a href="{approval_url}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
+                ✅ 承認する
+            </a>
+            
+            <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                このリンクは一度だけ有効です。
+            </p>
+          </body>
+        </html>
+        """
+
+        part = MIMEText(html, 'html')
+        message.attach(part)
+
+        try:
+            with smtplib.SMTP('smtp.gmail.com', 587) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(message)
+
+            self._log_email_sent(execution_id, parent_email, "success")
+            return True
+        
+        except Exception as e:
+            self._log_email_sent(execution_id, parent_email, f"error: {str(e)}")
+            return False
+        
+    def _log_email_sent(self, execution_id, sent_to, status):
+        """メール送信ログをDBに保存"""
+        conn = sqlite3.connect(self.db_name)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO EmailLog (execution_id, sent_to, status)
+            VALUES (?, ?, ?)
+            """, (execution_id, sent_to, status))
+        conn.commit()
+        conn.close()

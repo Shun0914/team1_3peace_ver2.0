@@ -115,7 +115,23 @@ if 'selected_quest' in st.session_state:
             <p><strong>作成者:</strong> {selected['created_by']}</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
+        # ステータス変更 UI
+        new_status = st.selectbox(
+            "ステータスを変更",
+            options=st.session_state.statuses,
+            index=st.session_state.statuses.index(selected['status']),
+            key="status_select"
+        )
+
+        if st.button("更新", key="update_status"):
+            for q in st.session_state.quests:
+                if q['id'] == selected['id']:
+                    q['status'] = new_status
+                    break
+            del st.session_state.selected_quest
+            st.rerun()       
+            
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest

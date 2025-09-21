@@ -78,6 +78,32 @@ def init_db(db_name="チャリンジャ―.db"):
     );
     """)
 
+    # ApprovalToken（承認トークン）
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS ApprovalToken (
+        token_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        token         TEXT NOT NULL UNIQUE,
+        execution_id  INTEGER NOT NULL,
+        created_at    DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        used_at       DATETIME,
+        is_valid      BOOLEAN DEFAULT TRUE,
+        FOREIGN KEY (execution_id) REFERENCES QuestExecution(execution_id) ON DELETE CASCADE
+    );
+    """)
+
+    # EmailLog（メールログ）
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS EmailLog (
+        log_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        execution_id  INTEGER NOT NULL,
+        sent_to       TEXT NOT NULL,
+        sent_at       DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        status        TEXT NOT NULL,
+        FOREIGN KEY (execution_id) REFERENCES QuestExecution(execution_id) ON DELETE CASCADE
+    );
+    """)
+    
+
     # インデックス作成
     cur.execute("CREATE INDEX IF NOT EXISTS idx_quest_created_by ON Quest(created_by);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_execution_quest ON QuestExecution(quest_id);")
@@ -85,6 +111,14 @@ def init_db(db_name="チャリンジャ―.db"):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_reward_quest ON Reward(quest_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_reward_user ON Reward(user_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_achievement_user ON Achievement(user_id);")
+
+    # init_db.pyに追加
+    # 承認トークンテーブル用
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_approval_token ON ApprovalToken(token);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_approval_execution ON ApprovalToken(execution_id);")
+
+    # メールログテーブル用（オプション）
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_email_execution ON EmailLog(execution_id);")
 
     conn.commit()
     conn.close()

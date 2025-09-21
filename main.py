@@ -1,9 +1,82 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time
+from email_service import EmailService
+import os
+from dotenv import load_dotenv
+
+# 環境変数のロード
+load_dotenv()
 
 # ページ設定
 st.set_page_config(page_title="チャジンジャー", page_icon=":guardsman:", layout="wide")
+
+query_params = st.query_params
+if 'approve_token' in query_params:
+    token = query_params['approve_token']
+
+    if 'use_db' in st.session_state and st.session_state.use_db:
+        from email_service import EmailService
+        import sqlite3
+
+        conn = sqlite3.connect('チャリンジャー.db')
+        cur = conn.cursor()
+
+        cur.execute("""
+                    SELECT execution_id, is_valid
+                    FROM ApprovalToken
+                    WHERE token = ? AND is_valid = TRUE
+                    """, (token,))
+        result = cur.fetchone()
+
+        if result:
+            execution_id = result[0]
+
+            cur.execute("""
+                        UPDATE QuestExecution
+                        SET status = '完了', completed_at = CURRENT_TIMESTAMP
+                        WHERE execution_id = ?
+                        """, (execution_id,))
+            
+            cur.execute("""
+                        UPDATE ApprovalToken
+                        SET is_valid = FALSE, used_at = CURRENT_TIMESTAMP
+                        WHERE token = ?
+                        """, (token,))
+            
+            conn.commit()
+
+
+            cur.execute("""
+                        SELECT q.title FROM Quest q
+                        JOIN QuestExecution qe ON q.quest_id = qe.quest_id
+                        WHERE qe.execution_id = ?
+                        """, (execution_id,))
+            quest_title = cur.fetchone()[0]
+
+            st.success(f"✅ クエスト『{quest_title}』を承認しました！")
+            st.balloons()
+        else:
+            st.error("❌ 無効なトークンです。")
+        conn.close()
+
+    else:
+        if 'approval_tokens' in st.session_state:
+            if token in st.session_state.approval_tokens:
+                quest_id = st.session_state.approval_tokens[token]
+
+                # クエストのステータスを完了に変更
+                for quest in st.session_state.quests:
+                    if quest['id'] == quest_id:
+                        quest['status'] = '完了'
+                        del st.session_state.approval_tokens[token]
+                        st.success(f"✅ 「{quest['title']}」を承認しました！")
+                        st.balloons()
+                        break
+            else:
+                st.error("❌ 無効なトークンです。")
+
+    st.query_params.clear()
 
 # CSS スタイル定義
 st.markdown("""
@@ -73,6 +146,14 @@ if 'show_create_modal' not in st.session_state:
 # 次のクエストIDを管理
 if 'next_quest_id' not in st.session_state:
     st.session_state.next_quest_id = max([q['id'] for q in st.session_state.quests]) + 1
+
+# 承認トークン管理用（既存のセッション初期化の後に追加）
+if 'approval_tokens' not in st.session_state:
+    st.session_state.approval_tokens = {}
+
+# DB使用フラグ（将来的な切り替え用）
+if 'use_db' not in st.session_state:
+    st.session_state.use_db = False  # 現在はセッション版を使用
 # =============================================================================
 # クエスト発行ボタン（メイン画面に表示）
 # =============================================================================
@@ -260,12 +341,111 @@ if 'selected_quest' in st.session_state:
         )
 
         if st.button("更新", key="update_status"):
+            # 変更前のステータスを保存
+            old_status = selected['status']
+
+            # ステータスを更新
             for q in st.session_state.quests:
                 if q['id'] == selected['id']:
                     q['status'] = new_status
-                    break
+                    # ===== メール送信処理を追加 =====
+                    # 「進行中」→「承認待ち」の場合にメール送信
+                    if old_status == "進行中" and new_status == "承認待ち":
+                        try:
+                            if 'use_db' in st.session_state and st.session_state.use_db:
+                                from email_service import EmailService
+                                email_service = EmailService()
+                                # 実際のexecution_idとparent_emailが必要
+                                # （DB連携後に実装）
+                                # email_service.send_approval_email(execution_id, parent_email)
+                                st.info("📧 承認依頼メールを送信しました（DB版）")
+                            else:
+                                import smtplib
+                                from email.mime.text import MIMEText
+                                from email.mime.multipart import MIMEMultipart
+                                import secrets
+                                import os
+                                from dotenv import load_dotenv
+                                
+                                load_dotenv()
+                                
+                                # 承認トークンを生成
+                                if 'approval_tokens' not in st.session_state:
+                                    st.session_state.approval_tokens = {}
+                                
+                                token = secrets.token_urlsafe(32)
+                                st.session_state.approval_tokens[token] = q['id']
+                                
+                                # メール設定
+                                sender_email = os.getenv('GMAIL_ADDRESS')
+                                sender_password = os.getenv('GMAIL_APP_PASSWORD')
+                                app_url = os.getenv('APP_URL', 'http://localhost:8501')
+                                
+                                # 親のメールアドレス（created_byのemailを使用）
+                                parent_email = q.get('email', sender_email)  # デフォルトは送信者と同じ
+                                
+                                # メール作成
+                                message = MIMEMultipart("alternative")
+                                message["Subject"] = f"【承認依頼】{q['title']}が完了報告されました"
+                                message["From"] = sender_email
+                                message["To"] = parent_email
+                                
+                                # 承認URL
+                                approval_url = f"{app_url}/?approve_token={token}"
+                                
+                                # 報酬の表示調整
+                                reward_display = f"{q['reward']}ポイント" if isinstance(q['reward'], int) else q['reward']
+                                
+                                # HTML本文
+                                html = f"""
+                                <html>
+                                <body>
+                                    <h2>クエスト完了の承認依頼</h2>
+                                    <p>以下のクエストが完了報告されました：</p>
+                                    
+                                    <div style="border: 1px solid #ddd; padding: 15px; margin: 20px 0; background-color: #f9f9f9;">
+                                        <h3 style="color: #333;">{q['title']}</h3>
+                                        <p><strong>詳細:</strong> {q['description']}</p>
+                                        <p><strong>報酬:</strong> {reward_display}</p>
+                                        <p><strong>期限:</strong> {q['deadline']}</p>
+                                        <p><strong>依頼者:</strong> {q['created_by']}</p>
+                                    </div>
+                                    
+                                    <p>内容を確認して問題なければ、以下のボタンをクリックして承認してください：</p>
+                                    
+                                    <div style="text-align: center; margin: 30px 0;">
+                                        <a href="{approval_url}" style="display: inline-block; padding: 15px 40px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;">
+                                            ✅ クエストを承認する
+                                        </a>
+                                    </div>
+                                    
+                                    <p style="color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+                                        このリンクは一度だけ有効です。間違えて承認した場合は、アプリから修正してください。<br>
+                                        <a href="{app_url}" style="color: #007bff;">アプリを開く</a>
+                                    </p>
+                                </body>
+                                </html>
+                                """
+                                
+                                part = MIMEText(html, "html")
+                                message.attach(part)
+                                
+                                # メール送信
+                                try:
+                                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                                        server.starttls()
+                                        server.login(sender_email, sender_password)
+                                        server.send_message(message)
+                                    st.success(f"📧 承認依頼メールを {parent_email} に送信しました！")
+                                except Exception as e:
+                                    st.error(f"❌ メール送信エラー: {str(e)}")
+                                    st.info("メール設定を確認してください：")
+                        except Exception as e:
+                            st.error(f"❌ エラーが発生しました: {str(e)}")
+                        break
+    
             del st.session_state.selected_quest
-            st.rerun()       
+            st.rerun()
             
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
@@ -275,6 +455,6 @@ if 'selected_quest' in st.session_state:
 # =============================================================================
 # TODO: 他メンバーが追加する機能
 # =============================================================================
-# - りす: 新規クエスト登録フォーム（上部に配置予定）
-# - けんた: ステータス変更機能（モーダル内に追加予定）
-# - けんた: Gmail API連携（完了通知機能）
+# - しゅんすけ: Gmail API連携（完了通知機能）
+# - けんた：DB連携（SQLite）
+# - りす：ログイン/ログアウト機能

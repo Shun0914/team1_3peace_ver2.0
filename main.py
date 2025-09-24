@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time
+from db import get_conn
 from email_service import EmailService
 import os
 from dotenv import load_dotenv
@@ -9,19 +10,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ページ設定
-st.set_page_config(page_title="チャジンジャー", page_icon=":guardsman:", layout="wide")
+st.set_page_config(page_title="チャリンジャー", page_icon=":guardsman:", layout="wide")
+
+# DB使用フラグ
+if 'use_db' not in st.session_state:
+    st.session_state.use_db = True
+
+# ステータス一覧
+statuses = ["未受注", "進行中", "承認待ち", "完了"]
 
 query_params = st.query_params
 if 'approve_token' in query_params:
-    token = query_params['approve_token']
+    token = query_params['approve_token'][0] if isinstance(query_params['approve_token'], list) else query_params['approve_token']
 
-    if 'use_db' in st.session_state and st.session_state.use_db:
-        from email_service import EmailService
-        import sqlite3
-
-        conn = sqlite3.connect('チャリンジャー.db')
+    with get_conn() as conn:
         cur = conn.cursor()
-
         cur.execute("""
                     SELECT execution_id, is_valid
                     FROM ApprovalToken
@@ -30,11 +33,11 @@ if 'approve_token' in query_params:
         result = cur.fetchone()
 
         if result:
-            execution_id = result[0]
+            execution_id = result["execution_id"]
 
             cur.execute("""
                         UPDATE QuestExecution
-                        SET status = '完了', completed_at = CURRENT_TIMESTAMP
+                        SET status = '完了', completed_at = CURRENT_TIMESTAMP 
                         WHERE execution_id = ?
                         """, (execution_id,))
             
@@ -43,42 +46,22 @@ if 'approve_token' in query_params:
                         SET is_valid = FALSE, used_at = CURRENT_TIMESTAMP
                         WHERE token = ?
                         """, (token,))
-            
-            conn.commit()
-
 
             cur.execute("""
                         SELECT q.title FROM Quest q
                         JOIN QuestExecution qe ON q.quest_id = qe.quest_id
                         WHERE qe.execution_id = ?
                         """, (execution_id,))
-            quest_title = cur.fetchone()[0]
+            quest_title = cur.fetchone()["title"]
 
             st.success(f"✅ クエスト『{quest_title}』を承認しました！")
             st.balloons()
+
+            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
         else:
             st.error("❌ 無効なトークンです。")
-        conn.close()
+            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
 
-    else:
-        if 'approval_tokens' in st.session_state:
-            if token in st.session_state.approval_tokens:
-                quest_id = st.session_state.approval_tokens[token]
-
-                # クエストのステータスを完了に変更
-                for quest in st.session_state.quests:
-                    if quest['id'] == quest_id:
-                        quest['status'] = '完了'
-                        del st.session_state.approval_tokens[token]
-                        st.success(f"✅ 「{quest['title']}」を承認しました！")
-                        st.balloons()
-                        break
-            else:
-                st.error("❌ 無効なトークンです。")
-
-    st.query_params.clear()
-
-# CSS スタイル定義
 st.markdown("""
 <style>
     /* カンバンボードの列スタイル */
@@ -112,48 +95,39 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # アプリタイトル
-st.title("チャジンジャー")
+st.title("チャリンジャー")
 st.write("チャットボットアプリケーションへようこそ！")
 
-# セッション状態の初期化（ダミーデータ）
-if 'quests' not in st.session_state:
-    st.session_state.quests = [
-        # 未受注クエスト
-        {"id": 1, "title": "部屋の掃除機かけ", "description": "リビングと寝室に掃除機をかける", "status": "未受注", "reward": 500, "deadline": "2025-09-25", "created_by": "お母さん"},
-        {"id": 2, "title": "お風呂掃除", "description": "浴槽とタイルを洗剤で掃除する", "status": "未受注", "reward": 800, "deadline": "2025-09-24", "created_by": "お父さん"},
-        {"id": 3, "title": "玄関の靴を整理", "description": "靴箱に靴を綺麗に並べる", "status": "未受注", "reward": 200, "deadline": "2025-09-23", "created_by": "お母さん"},
-        
-        # 進行中クエスト
-        {"id": 4, "title": "洗濯物たたみ", "description": "乾いた洗濯物をたたんでタンスにしまう", "status": "進行中", "reward": 300, "deadline": "2025-09-22", "created_by": "お母さん"},
-        {"id": 5, "title": "食器洗い", "description": "昼食後の食器を洗って乾かす", "status": "進行中", "reward": 400, "deadline": "2025-09-22", "created_by": "お母さん"},
-        
-        # 承認待ちクエスト
-        {"id": 6, "title": "ゴミ出し", "description": "燃えるゴミと資源ゴミを分別して出す", "status": "承認待ち", "reward": 300, "deadline": "2025-09-21", "created_by": "お父さん"},
-        
-        # 完了済みクエスト
-        {"id": 7, "title": "庭の草むしり", "description": "花壇の雑草を抜く", "status": "完了", "reward": 600, "deadline": "2025-09-20", "created_by": "お父さん"},
-        {"id": 8, "title": "窓拭き", "description": "リビングの窓ガラスを拭く", "status": "完了", "reward": 500, "deadline": "2025-09-19", "created_by": "お母さん"}
-    ]
+# DBからクエストと実行状況を取得
+def load_quests_from_db():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT q.quest_id, q.title, q.description, q.reward_amount, q.created_by,  
+                    qe.status, qe.assigned_to, q.created_at, q.deadline
+            FROM Quest q
+            LEFT JOIN QuestExecution qe ON q.quest_id = qe.quest_id
+            ORDER BY q.quest_id
+        """)
 
-# ステータス一覧の初期化
-if 'statuses' not in st.session_state:
-    st.session_state.statuses = ["未受注", "進行中", "承認待ち", "完了"]
+        rows = cur.fetchall()
+        quests = []
+        for row in rows:
+            quests.append({
+                "id": row["quest_id"],
+                "title": row["title"],
+                "description": row["description"],
+                "reward": row["reward_amount"],
+                "created_by": row["created_by"],
+                "status": row["status"] if row["status"] else "未受注",
+                "assigned_to": row["assigned_to"],
+                "created_at": row["created_at"],
+                "deadline": row["deadline"]
+            })
+        return quests
+    
+quests = load_quests_from_db()
 
-# クエスト発行モーダルの状態管理
-if 'show_create_modal' not in st.session_state:
-    st.session_state.show_create_modal = False
-
-# 次のクエストIDを管理
-if 'next_quest_id' not in st.session_state:
-    st.session_state.next_quest_id = max([q['id'] for q in st.session_state.quests]) + 1
-
-# 承認トークン管理用（既存のセッション初期化の後に追加）
-if 'approval_tokens' not in st.session_state:
-    st.session_state.approval_tokens = {}
-
-# DB使用フラグ（将来的な切り替え用）
-if 'use_db' not in st.session_state:
-    st.session_state.use_db = False  # 現在はセッション版を使用
 # =============================================================================
 # クエスト発行ボタン（メイン画面に表示）
 # =============================================================================
@@ -169,6 +143,9 @@ st.markdown("---")
 # =============================================================================
 # クエスト発行ポップアップ（モーダル）
 # =============================================================================
+if 'show_create_modal' not in st.session_state:
+    st.session_state.show_create_modal = False
+
 # ポップアップを表示する条件をチェック
 if st.session_state.show_create_modal:
     
@@ -240,27 +217,22 @@ if st.session_state.show_create_modal:
             if st.button("クエストを依頼する", key="submit_quest", type="primary", use_container_width=True):
                 # 入力値の検証
                 if quest_title and quest_description and requester_email and quest_reward:
-                    # 新しいクエストを作成
-                    new_quest = {
-                        "id": st.session_state.next_quest_id,
-                        "title": quest_title,
-                        "description": quest_description,
-                        "status": "未受注",  # 最初は「未受注」で登録します。
-                        "reward": quest_reward,  # 文字列として保存
-                        "deadline": f"{quest_date} {quest_time.strftime('%H:%M')}",
-                        "created_by": requester_name,  # 依頼者名を保存
-                        "email": requester_email       # メールアドレスを別項目で保存
-                    }
-                    
-                    # クエストリストに追加
-                    st.session_state.quests.append(new_quest)
-                    st.session_state.next_quest_id += 1
-                    
-                    # モーダルを閉じる
-                    st.session_state.show_create_modal = False
-                    
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+
+                        # Quest登録
+                        cur.execute("INSERT INTO Quest (title, description, reward_amount, created_by, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)",
+                                    (quest_title, quest_description, quest_reward, 1))
+                        quest_id = cur.lastrowid
+
+                        # QuestExecution登録
+                        cur.execute("INSERT INTO QuestExecution (quest_id, assigned_to, status) VALUES (?,?,?)", 
+                                    (quest_id, 1, "未受注"))
+
                     # 成功メッセージを表示して画面をリロード
                     st.success("✅ クエストが正常に発行されました！")
+                    # モーダルを閉じる
+                    st.session_state.show_create_modal = False
                     st.rerun()
                 else:
                     st.error("❌ すべての項目を入力してください")
@@ -280,33 +252,33 @@ if st.session_state.show_create_modal:
 # =============================================================================
 
 # 4列のカラムレイアウト作成
-cols = st.columns(len(st.session_state.statuses))
+cols = st.columns(len(statuses))
 
 # 各ステータス列の処理
-for i, status in enumerate(st.session_state.statuses):
+for i, status in enumerate(statuses):
     with cols[i]:
         # 列ヘッダー表示
         st.markdown(f'<div class="column-header">{status}</div>', unsafe_allow_html=True)
-        
         # 現在の列に該当するクエストをフィルタリング
-        quests = [quest for quest in st.session_state.quests if quest["status"] == status]
+        filtered = [q for q in quests if q["status"] == status]
 
         # 各クエストをカード形式で表示
-        for quest in quests:
+        for q in filtered:
+        
             # 報酬の表示形式を調整（数値の場合はポイント、文字列の場合はそのまま表示）
-            reward_display = f"{quest['reward']}ポイント" if isinstance(quest['reward'], int) else quest['reward']
-            
+            reward_display = f"{q['reward']}" if isinstance(q['reward'], int) else q['reward']
+
             # HTMLカード + JavaScriptクリック処理
             st.markdown(f'''
-            <div class="card" onclick="document.getElementById('btn_{quest["id"]}').click()">
-                <h4>{quest["title"]}</h4>
+            <div class="card" onclick="document.getElementById('btn_{q["id"]}').click()">
+                <h4>{q["title"]}</h4>
                 <p>報酬: {reward_display}</p>
             </div>
             ''', unsafe_allow_html=True)
             
             # 隠しボタン（カードクリック時にトリガーされる）
-            if st.button("", key=f"btn_{quest['id']}", help="詳細表示"):
-                st.session_state.selected_quest = quest['id']
+            if st.button("", key=f"btn_{q['id']}", help="詳細表示"):
+                st.session_state.selected_quest = q['id']
 
 # =============================================================================
 # 詳細モーダル表示
@@ -315,7 +287,7 @@ for i, status in enumerate(st.session_state.statuses):
 # クエストが選択されている場合の詳細表示
 if 'selected_quest' in st.session_state:
     # 選択されたクエストの詳細情報を取得
-    selected = next((q for q in st.session_state.quests if q['id'] == st.session_state.selected_quest), None)
+    selected = next((q for q in quests if q['id'] == st.session_state.selected_quest), None)
     
     if selected:
         # 報酬の表示形式を調整
@@ -335,122 +307,59 @@ if 'selected_quest' in st.session_state:
         # ステータス変更 UI
         new_status = st.selectbox(
             "ステータスを変更",
-            options=st.session_state.statuses,
-            index=st.session_state.statuses.index(selected['status']),
+            options=statuses,
+            index=statuses.index(selected['status']),
             key="status_select"
         )
 
         if st.button("更新", key="update_status"):
             # 変更前のステータスを保存
             old_status = selected['status']
+            with get_conn() as conn:
+                cur = conn.cursor()
 
-            # ステータスを更新
-            for q in st.session_state.quests:
-                if q['id'] == selected['id']:
-                    q['status'] = new_status
-                    # ===== メール送信処理を追加 =====
-                    # 「進行中」→「承認待ち」の場合にメール送信
-                    if old_status == "進行中" and new_status == "承認待ち":
-                        try:
-                            if 'use_db' in st.session_state and st.session_state.use_db:
-                                from email_service import EmailService
-                                email_service = EmailService()
-                                # 実際のexecution_idとparent_emailが必要
-                                # （DB連携後に実装）
-                                # email_service.send_approval_email(execution_id, parent_email)
-                                st.info("📧 承認依頼メールを送信しました（DB版）")
+                # QuestExecutionのステータスを更新
+                cur.execute("UPDATE QuestExecution SET status=? Where quest_id=?", (new_status, selected['id']))
+            st.success(f"ステータスを 「{new_status}」に更新しました")
+
+            # ===== メール送信処理を追加 =====（約262行目）
+            if old_status == "進行中" and new_status == "承認待ち":
+                try:
+                    # EmailServiceクラスを使用してメール送信
+                    from email_service import EmailService
+                    email_service = EmailService()
+                    
+                    # execution_idを取得（QuestExecutionテーブルから）
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT execution_id 
+                            FROM QuestExecution 
+                            WHERE quest_id = ?
+                        """, (selected['id'],))
+                        result = cur.fetchone()
+                        
+                        if result:
+                            execution_id = result["execution_id"]
+                            
+                            # EmailServiceを使ってメール送信
+                            success = email_service.send_approval_email(execution_id)
+                            
+                            if success:
+                                st.info("📧 承認依頼メールを送信しました")
                             else:
-                                import smtplib
-                                from email.mime.text import MIMEText
-                                from email.mime.multipart import MIMEMultipart
-                                import secrets
-                                import os
-                                from dotenv import load_dotenv
-                                
-                                load_dotenv()
-                                
-                                # 承認トークンを生成
-                                if 'approval_tokens' not in st.session_state:
-                                    st.session_state.approval_tokens = {}
-                                
-                                token = secrets.token_urlsafe(32)
-                                st.session_state.approval_tokens[token] = q['id']
-                                
-                                # メール設定
-                                sender_email = os.getenv('GMAIL_ADDRESS')
-                                sender_password = os.getenv('GMAIL_APP_PASSWORD')
-                                app_url = os.getenv('APP_URL', 'http://localhost:8501')
-                                
-                                # 親のメールアドレス（created_byのemailを使用）
-                                parent_email = q.get('email', sender_email)  # デフォルトは送信者と同じ
-                                
-                                # メール作成
-                                message = MIMEMultipart("alternative")
-                                message["Subject"] = f"【承認依頼】{q['title']}が完了報告されました"
-                                message["From"] = sender_email
-                                message["To"] = parent_email
-                                
-                                # 承認URL
-                                approval_url = f"{app_url}/?approve_token={token}"
-                                
-                                # 報酬の表示調整
-                                reward_display = f"{q['reward']}ポイント" if isinstance(q['reward'], int) else q['reward']
-                                
-                                # HTML本文
-                                html = f"""
-                                <html>
-                                <body>
-                                    <h2>クエスト完了の承認依頼</h2>
-                                    <p>以下のクエストが完了報告されました：</p>
-                                    
-                                    <div style="border: 1px solid #ddd; padding: 15px; margin: 20px 0; background-color: #f9f9f9;">
-                                        <h3 style="color: #333;">{q['title']}</h3>
-                                        <p><strong>詳細:</strong> {q['description']}</p>
-                                        <p><strong>報酬:</strong> {reward_display}</p>
-                                        <p><strong>期限:</strong> {q['deadline']}</p>
-                                        <p><strong>依頼者:</strong> {q['created_by']}</p>
-                                    </div>
-                                    
-                                    <p>内容を確認して問題なければ、以下のボタンをクリックして承認してください：</p>
-                                    
-                                    <div style="text-align: center; margin: 30px 0;">
-                                        <a href="{approval_url}" style="display: inline-block; padding: 15px 40px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;">
-                                            ✅ クエストを承認する
-                                        </a>
-                                    </div>
-                                    
-                                    <p style="color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
-                                        このリンクは一度だけ有効です。間違えて承認した場合は、アプリから修正してください。<br>
-                                        <a href="{app_url}" style="color: #007bff;">アプリを開く</a>
-                                    </p>
-                                </body>
-                                </html>
-                                """
-                                
-                                part = MIMEText(html, "html")
-                                message.attach(part)
-                                
-                                # メール送信
-                                try:
-                                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                                        server.starttls()
-                                        server.login(sender_email, sender_password)
-                                        server.send_message(message)
-                                    st.success(f"📧 承認依頼メールを {parent_email} に送信しました！")
-                                except Exception as e:
-                                    st.error(f"❌ メール送信エラー: {str(e)}")
-                                    st.info("メール設定を確認してください：")
-                        except Exception as e:
-                            st.error(f"❌ エラーが発生しました: {str(e)}")
-                        break
-    
-            del st.session_state.selected_quest
-            st.rerun()
-            
+                                st.error("❌ メール送信に失敗しました")
+                        else:
+                            st.error("❌ 実行IDが見つかりません")
+                            
+                except Exception as e:
+                    st.error(f"❌ メール送信エラー: {str(e)}")
+                    print(f"Mail sending error details: {e}")  # デバッグ用
+                    
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
-            st.rerun()
+    st.rerun()
 
 # =============================================================================
 # TODO: 他メンバーが追加する機能

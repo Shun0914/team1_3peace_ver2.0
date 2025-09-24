@@ -13,7 +13,7 @@ class EmailService:
     def __init__(self, db_name='チャリンジャー.db'):
         self.db_name = db_name
         self.sender_email = os.getenv('GMAIL_ADDRESS')
-        self.sender_password = os.getenv('GMAIL_PASSWORD')
+        self.sender_password = os.getenv('GMAIL_APP_PASSWORD')
         self.app_url = os.getenv('APP_URL')
     
     def generate_approval_token(self, execution_id):
@@ -23,22 +23,23 @@ class EmailService:
         conn = sqlite3.connect(self.db_name)
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO ApprovalToken (execution_id, token, created_at)
-            VALUES (?, ?, ?)
+            INSERT INTO ApprovalToken (execution_id, token, created_at, is_valid)
+            VALUES (?, ?, ?, 1)
             """, (execution_id, token, datetime.now()))
         conn.commit()
         conn.close()
         return token
     
-    def send_approval_email(self, execution_id, parent_email):
+    def send_approval_email(self, execution_id):
         """承認依頼メールを送信"""
         conn = sqlite3.connect(self.db_name)
         cur = conn.cursor()
         cur.execute("""
-            SELECT q.title, q.description, q.reward_amount, u.name
+            SELECT q.title, q.description, q.reward_amount, u_child.name, u_parent.email
             FROM QuestExecution qe
             JOIN Quest q ON qe.quest_id = q.quest_id
-            JOIN User u ON qe.assigned_to = u.user_id
+            JOIN User u_child ON qe.assigned_to = u_child.user_id
+            JOIN User u_parent ON q.created_by = u_parent.user_id
             WHERE qe.execution_id = ?
         """, (execution_id,))
         quest_data = cur.fetchone()
@@ -47,7 +48,7 @@ class EmailService:
         if not quest_data:
             return False
 
-        title, description, reward, child_name = quest_data
+        title, description, reward, child_name, parent_email = quest_data
 
         token = self.generate_approval_token(execution_id)
 
@@ -56,7 +57,7 @@ class EmailService:
         message['From'] = self.sender_email
         message['To'] = parent_email
 
-        approval_url = f"{self.app_url}/?approval_token={token}"
+        approval_url = f"{self.app_url}/?approve_token={token}"
 
         # HTML本文
         html = f"""
@@ -98,6 +99,7 @@ class EmailService:
         
         except Exception as e:
             self._log_email_sent(execution_id, parent_email, f"error: {str(e)}")
+            print("SMTP エラー詳細:", e)
             return False
         
     def _log_email_sent(self, execution_id, sent_to, status):

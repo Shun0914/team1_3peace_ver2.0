@@ -1,6 +1,6 @@
 import sqlite3
 
-def init_db(db_name="チャリンジャ―.db"):
+def init_db(db_name="チャリンジャー.db"):
     conn = sqlite3.connect(db_name)
     cur = conn.cursor()
 
@@ -42,7 +42,7 @@ def init_db(db_name="チャリンジャ―.db"):
         started_at    DATETIME,
         completed_at  DATETIME,
         status        TEXT NOT NULL DEFAULT '未受注'
-                      CHECK (status IN ('未受注','進行中','承認中','完了')),
+                      CHECK (status IN ('未受注','進行中','承認待ち','完了')),
         memo          TEXT,
         photo_path    TEXT,
         FOREIGN KEY (quest_id) REFERENCES Quest(quest_id) ON DELETE CASCADE,

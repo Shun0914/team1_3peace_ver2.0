@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime, date, time
 from db import get_conn
 from email_service import EmailService
-import secrets
 import os
 from dotenv import load_dotenv
 
@@ -223,7 +222,7 @@ if st.session_state.show_create_modal:
 
                         # Quest登録
                         cur.execute("INSERT INTO Quest (title, description, reward_amount, created_by, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)",
-                                    (quest_title, quest_description, quest_reward, requester_name))
+                                    (quest_title, quest_description, quest_reward, 1))
                         quest_id = cur.lastrowid
 
                         # QuestExecution登録
@@ -323,116 +322,39 @@ if 'selected_quest' in st.session_state:
                 cur.execute("UPDATE QuestExecution SET status=? Where quest_id=?", (new_status, selected['id']))
             st.success(f"ステータスを 「{new_status}」に更新しました")
 
-            # ===== メール送信処理を追加 =====
+            # ===== メール送信処理を追加 =====（約262行目）
             if old_status == "進行中" and new_status == "承認待ち":
                 try:
-                    if 'use_db' in st.session_state and st.session_state.use_db:
-                        from email_service import EmailService
-                        email_service = EmailService()
-                        # 実際のexecution_idとparent_emailが必要
-                        execution_id = selected['id']
-                        # （DB連携後に実装）
-                        # email_service.send_approval_email(execution_id, parent_email)
-                        success = email_service.send_approval_email(execution_id)
-
-                        if success:
-                            st.info("📧 承認依頼メールを送信しました")
-                        else:
-                            st.error("❌ メール送信に失敗しました")
+                    # EmailServiceクラスを使用してメール送信
+                    from email_service import EmailService
+                    email_service = EmailService()
                     
-                    else:
-                        import smtplib
-                        from email.mime.text import MIMEText
-                        from email.mime.multipart import MIMEMultipart
-                        import secrets
-                        import os
-                        from dotenv import load_dotenv
+                    # execution_idを取得（QuestExecutionテーブルから）
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT execution_id 
+                            FROM QuestExecution 
+                            WHERE quest_id = ?
+                        """, (selected['id'],))
+                        result = cur.fetchone()
                         
-                        load_dotenv()
-                        
-                        # 承認トークンを生成
-                        token = secrets.token_urlsafe(32)
-                        
-                        # DBに保存
-                        with get_conn() as conn:
-                            cur = conn.cursor()
-                            cur.execute("""
-                                INSERT INTO ApprovalToken (execution_id, token, created_at)
-                                VALUES (?, ?, CURRENT_TIMESTAMP)
-                            """, (selected['id'], token))
+                        if result:
+                            execution_id = result["execution_id"]
                             
-                        # メール設定
-                        sender_email = os.getenv('GMAIL_ADDRESS')
-                        sender_password = os.getenv('GMAIL_APP_PASSWORD')
-                        app_url = os.getenv('APP_URL', 'http://localhost:8501')
-                        
-                        # 親のメールアドレス（created_byのemailを使用）
-                        with get_conn() as conn:
-                            cur = conn.cursor()
-                            cur.execute("""
-                                SELECT u.mail
-                                FROM Quest q
-                                JOIN User u ON q.created_by = u.user_id
-                                WHERE q.quest_id =?
-                            """, (selected['id'],))
-                            row =cur.fetchone()
-                        parent_email = row['email'] if row else sender_email
-                        
-                        # メール作成
-                        message = MIMEMultipart("alternative")
-                        message["Subject"] = f"【承認依頼】{q['title']}が完了報告されました"
-                        message["From"] = sender_email
-                        message["To"] = parent_email
-                        
-                        # 承認URL
-                        approval_url = f"{app_url}/?approve_token={token}"
-                        
-                        # 報酬の表示調整
-                        reward_display = f"{selected['reward']}ポイント" if isinstance(selected['reward'], int) else selected['reward']
-                        
-                        # HTML本文
-                        html = f"""
-                        <html>
-                        <body>
-                            <h2>クエスト完了の承認依頼</h2>
-                            <p>以下のクエストが完了報告されました：</p>
+                            # EmailServiceを使ってメール送信
+                            success = email_service.send_approval_email(execution_id)
                             
-                            <div style="border: 1px solid #ddd; padding: 15px; margin: 20px 0; background-color: #f9f9f9;">
-                                <h3 style="color: #333;">{selected['title']}</h3>
-                                <p><strong>詳細:</strong> {selected['description']}</p>
-                                <p><strong>報酬:</strong> {reward_display}</p>
-                                <p><strong>期限:</strong> {selected['deadline']}</p>
-                                <p><strong>依頼者:</strong> {selected['created_by']}</p>
-                            </div>
+                            if success:
+                                st.info("📧 承認依頼メールを送信しました")
+                            else:
+                                st.error("❌ メール送信に失敗しました")
+                        else:
+                            st.error("❌ 実行IDが見つかりません")
                             
-                            <p>内容を確認して問題なければ、以下のボタンをクリックして承認してください：</p>
-                            
-                            <div style="text-align: center; margin: 30px 0;">
-                                <a href="{approval_url}" style="display: inline-block; padding: 15px 40px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;">
-                                    ✅ クエストを承認する
-                                </a>
-                            </div>
-                            
-                            <p style="color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
-                                このリンクは一度だけ有効です。間違えて承認した場合は、アプリから修正してください。<br>
-                                <a href="{app_url}" style="color: #007bff;">アプリを開く</a>
-                            </p>
-                        </body>
-                        </html>
-                        """
-                        
-                        part = MIMEText(html, "html")
-                        message.attach(part)
-                        
-                        # メール送信
-                        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                                server.starttls()
-                                server.login(sender_email, sender_password)
-                                server.send_message(message)
-                        st.success(f"📧 承認依頼メールを {parent_email} に送信しました！")
                 except Exception as e:
                     st.error(f"❌ メール送信エラー: {str(e)}")
-                    st.info("メール設定を確認してください：")
+                    print(f"Mail sending error details: {e}")  # デバッグ用
                     
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):

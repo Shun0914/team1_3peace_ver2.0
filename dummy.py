@@ -25,7 +25,7 @@ def insert_dummy_quests():
         cur.execute("""
         INSERT OR IGNORE INTO User (user_id, name, email, password_hash, role)
         VALUES (?, ?, ?, ?, ?)
-        """, (1, "お母さん", "your mail address@gmail.com", "dummyhash", "parent"))
+        """, (1, "お母さん", "shunsuke.shimojo914@gmail.com", "dummyhash", "parent"))
 
         # ダミークエストを挿入
         for q in dummy_quests:

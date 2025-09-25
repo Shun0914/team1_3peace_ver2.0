@@ -60,6 +60,8 @@ if token:
                         SET is_valid = FALSE, used_at = CURRENT_TIMESTAMP
                         WHERE token = ?
                         """, (token,))
+            
+            conn.commit()
 
             cur.execute("""
                         SELECT q.title FROM Quest q
@@ -71,11 +73,14 @@ if token:
             st.success(f"✅ クエスト『{quest_title}』を承認しました！")
             st.balloons()
 
-            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
+            import time
+            time.sleep(3.0)
+            st.query_params.clear()
+            st.rerun()
         else:
             st.error("❌ 無効なトークンです。")
-            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
-
+            st.query_params.clear()
+            st.rerun()
 st.markdown("""
 <style>
     /* カンバンボードの列スタイル */
@@ -135,13 +140,16 @@ with st.sidebar:
 def load_quests_from_db():
     with get_conn() as conn:
         cur = conn.cursor()
+        current_user_id = st.session_state.get('user_id', 1)
+
         cur.execute("""
             SELECT q.quest_id, q.title, q.description, q.reward_amount, q.created_by,  
                     qe.status, qe.assigned_to, q.created_at, q.deadline
             FROM Quest q
             LEFT JOIN QuestExecution qe ON q.quest_id = qe.quest_id
+            WHERE q.created_by = ? OR qe.assigned_to = ?
             ORDER BY q.quest_id
-        """)
+        """, (current_user_id, current_user_id))
 
         rows = cur.fetchall()
         quests = []
@@ -205,18 +213,7 @@ if st.session_state.show_create_modal:
                 height=120, 
                 key="quest_desc_input"
             )
-            
-            requester_name = st.text_input(
-                "依頼者", 
-                placeholder="例: お母さん", 
-                key="quest_requester_input"
-            )
-            
-            requester_email = st.text_input(
-                "メールアドレス", 
-                placeholder="example@email.com", 
-                key="quest_email_input"
-            )
+            requester_email = st.session_state.get("user_email", "")
         
         # 右列：期限・報酬情報
         with form_col2:
@@ -253,14 +250,16 @@ if st.session_state.show_create_modal:
                     with get_conn() as conn:
                         cur = conn.cursor()
 
-                        # Quest登録
-                        cur.execute("INSERT INTO Quest (title, description, reward_amount, created_by, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)",
-                                    (quest_title, quest_description, quest_reward, 1))
+                        # Quest登録(ログインユーザIDを使用)
+                        current_user_id = st.session_state.get('user_id', 1)
+                        cur.execute("INSERT INTO Quest (title, description, reward_amount, deadline, created_by, created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)",
+                                    (quest_title, quest_description, quest_reward, quest_date, current_user_id))
                         quest_id = cur.lastrowid
 
                         # QuestExecution登録
+                        assigned_user_id = current_user_id
                         cur.execute("INSERT INTO QuestExecution (quest_id, assigned_to, status) VALUES (?,?,?)", 
-                                    (quest_id, 1, "未受注"))
+                                    (quest_id, assigned_user_id, "未受注"))
 
                     # 成功メッセージを表示して画面をリロード
                     st.success("✅ クエストが正常に発行されました！")
@@ -392,7 +391,7 @@ if 'selected_quest' in st.session_state:
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
-    st.rerun()
+        st.rerun()
 
 # =============================================================================
 # TODO: 他メンバーが追加する機能

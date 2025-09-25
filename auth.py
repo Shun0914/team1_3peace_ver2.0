@@ -19,12 +19,12 @@ def login_user(username: str, password: str) -> bool:
     if user and verify_password(password, user['password_hash']):
         # ログイン成功時の処理
         st.session_state['logged_in'] = True
-        st.session_state['user_id'] = user['id']
+        st.session_state['user_id'] = user['user_id']
         st.session_state['username'] = user['username']
         st.session_state['user_email'] = user['email']
         
         # 最終ログイン時刻を更新
-        update_last_login(user['id'])
+        update_last_login(user['user_id'])
         return True
     return False
 

@@ -11,14 +11,14 @@ def init_db(db_name="チャリンジャー.db"):
     cur.execute("""
     CREATE TABLE IF NOT EXISTS User (
         user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-        name          TEXT NOT NULL,
+        username      TEXT NOT NULL UNIQUE,
         email         TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
-        role          TEXT NOT NULL CHECK (role IN ('child','parent')),
-        created_at    DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        created_at    DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        last_login    DATETIME,
+        is_active     BOOLEAN DEFAULT 1
     );
     """)
-
     # Quest（クエスト）
     cur.execute("""
     CREATE TABLE IF NOT EXISTS Quest (

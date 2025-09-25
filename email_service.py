@@ -56,7 +56,7 @@ class EmailService:
         print(f"[DEBUG] SQLクエリ実行...")
         
         cur.execute("""
-            SELECT q.title, q.description, q.reward_amount, u_child.name, u_parent.email
+            SELECT q.title, q.description, q.reward_amount, u_child.username, u_parent.email
             FROM QuestExecution qe
             JOIN Quest q ON qe.quest_id = q.quest_id
             JOIN User u_child ON qe.assigned_to = u_child.user_id
@@ -89,11 +89,11 @@ class EmailService:
                     print(f"  Quest: created_by={q_result[0]} (type: {q_result[1]})")
                     
                     # Userの存在確認
-                    cur.execute("SELECT user_id, name, email FROM User WHERE user_id = ?", (qe_result[1],))
+                    cur.execute("SELECT user_id, username, email FROM User WHERE user_id = ?", (qe_result[1],))
                     child_result = cur.fetchone()
                     print(f"  Child User: {child_result}")
                     
-                    cur.execute("SELECT user_id, name, email FROM User WHERE user_id = ?", (q_result[0],))
+                    cur.execute("SELECT user_id, username, email FROM User WHERE user_id = ?", (q_result[0],))
                     parent_result = cur.fetchone()
                     print(f"  Parent User: {parent_result}")
                 else:
@@ -118,7 +118,7 @@ class EmailService:
             message['From'] = self.sender_email
             message['To'] = parent_email
 
-            approval_url = f"{self.app_url}/?approve_token={token}"
+            approval_url = f"{self.app_url}/?{execution_id}&approve_token={token}"
             print(f"[DEBUG] 承認URL: {approval_url}")
 
             # HTML本文

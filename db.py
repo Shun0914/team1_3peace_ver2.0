@@ -2,6 +2,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from datetime import datetime
 
 # DBパスの設定（環境変数 or デフォルト）
 DB_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).parent / "チャリンジャー.db"))
@@ -37,8 +38,8 @@ def init_database():
     with get_conn() as conn:
         # ユーザーテーブルの作成
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            CREATE TABLE IF NOT EXISTS User (
+                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
@@ -49,41 +50,34 @@ def init_database():
         """)
         
         # インデックスの作成（検索高速化）
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON User (email);")
 
 def get_user_by_username(username: str):
-    """ユーザー名でユーザー情報を取得"""
     with get_conn() as conn:
-        cursor = conn.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1",
-            (username,)
-        )
-        return cursor.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM User WHERE username = ?", (username,))
+        return cur.fetchone()
 
 def get_user_by_email(email: str):
-    """メールアドレスでユーザー情報を取得"""
     with get_conn() as conn:
-        cursor = conn.execute(
-            "SELECT * FROM users WHERE email = ? AND is_active = 1",
-            (email,)
-        )
-        return cursor.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM User WHERE email = ?", (email,))
+        return cur.fetchone()
 
 def create_user(username: str, email: str, password_hash: str):
-    """新規ユーザーを作成"""
     with get_conn() as conn:
-        cursor = conn.execute(
-            """INSERT INTO users (username, email, password_hash) 
-               VALUES (?, ?, ?)""",
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO User (username, email, password_hash) VALUES (?, ?, ?)",
             (username, email, password_hash)
         )
-        return cursor.lastrowid
+        return cur.lastrowid
 
 def update_last_login(user_id: int):
-    """ユーザーの最終ログイン時刻を更新"""
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-            (user_id,)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE User SET last_login = ? WHERE user_id = ?",
+            (datetime.now(), user_id)
         )
+

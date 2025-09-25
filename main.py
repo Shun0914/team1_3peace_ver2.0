@@ -7,12 +7,88 @@ import os
 from dotenv import load_dotenv
 from auth import show_login_form, is_logged_in, logout_user
 from db import init_database
+import time as time_module
 
 # 環境変数のロード
 load_dotenv()
 
 # ページ設定
 st.set_page_config(page_title="チャリンジャー", page_icon=":guardsman:", layout="wide")
+
+# =============================================================================
+# 承認トークン処理（ログイン前に実行）
+# =============================================================================
+query_params = st.query_params
+token = None
+
+if 'approve_token' in query_params:
+    token = query_params['approve_token'][0] if isinstance(query_params['approve_token'], list) else query_params['approve_token']
+
+if token:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT execution_id, is_valid
+            FROM ApprovalToken
+            WHERE token = ? AND is_valid = TRUE
+        """, (token,))
+        result = cur.fetchone()
+
+        if result:
+            execution_id = result["execution_id"]
+
+            # クエスト情報を取得
+            cur.execute("""
+                SELECT q.title, u.username as child_name
+                FROM Quest q
+                JOIN QuestExecution qe ON q.quest_id = qe.quest_id
+                JOIN User u ON qe.assigned_to = u.user_id
+                WHERE qe.execution_id = ?
+            """, (execution_id,))
+            quest_info = cur.fetchone()
+
+            # ステータス更新
+            cur.execute("""
+                UPDATE QuestExecution
+                SET status = '完了', completed_at = CURRENT_TIMESTAMP 
+                WHERE execution_id = ?
+            """, (execution_id,))
+            
+            cur.execute("""
+                UPDATE ApprovalToken
+                SET is_valid = FALSE, used_at = CURRENT_TIMESTAMP
+                WHERE token = ?
+            """, (token,))
+            
+            conn.commit()
+
+            # 承認完了メッセージ（ログイン不要）
+            st.markdown(f"""
+                <div style="text-align: center; padding: 50px;">
+                    <h1>✅ 承認完了</h1>
+                    <p style="font-size: 20px;">
+                        {quest_info['child_name']}さんのクエスト<br>
+                        「{quest_info['title']}」<br>
+                        を承認しました！
+                    </p>
+                    <p style="color: gray; margin-top: 30px;">
+                        このページは閉じていただいて構いません。
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.balloons()
+            # ここで処理を終了（ログイン画面を表示しない）
+            st.stop()
+        else:
+            st.error("❌ 無効なトークンです。")
+            st.markdown("""
+                <div style="text-align: center; padding: 20px;">
+                    <p>このリンクは既に使用されているか、無効です。</p>
+                    <p style="color: gray;">このページは閉じていただいて構いません。</p>
+                </div>
+            """, unsafe_allow_html=True)
+            st.stop()
 
 # =============================================================================
 # データベースの初期化とログイン状態の確認
@@ -27,54 +103,6 @@ if not is_logged_in():
     
 # ステータス一覧
 statuses = ["未受注", "進行中", "承認待ち", "完了"]
-
-query_params = st.query_params
-token = None
-
-if 'approve_token' in query_params:
-    token = query_params['approve_token'][0] if isinstance(query_params['approve_token'], list) else query_params['approve_token']
-elif 'approve_token' in st.session_state:
-    token = st.session_state['approve_token']
-
-if token:
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-                    SELECT execution_id, is_valid
-                    FROM ApprovalToken
-                    WHERE token = ? AND is_valid = TRUE
-                    """, (token,))
-        result = cur.fetchone()
-
-        if result:
-            execution_id = result["execution_id"]
-
-            cur.execute("""
-                        UPDATE QuestExecution
-                        SET status = '完了', completed_at = CURRENT_TIMESTAMP 
-                        WHERE execution_id = ?
-                        """, (execution_id,))
-            
-            cur.execute("""
-                        UPDATE ApprovalToken
-                        SET is_valid = FALSE, used_at = CURRENT_TIMESTAMP
-                        WHERE token = ?
-                        """, (token,))
-
-            cur.execute("""
-                        SELECT q.title FROM Quest q
-                        JOIN QuestExecution qe ON q.quest_id = qe.quest_id
-                        WHERE qe.execution_id = ?
-                        """, (execution_id,))
-            quest_title = cur.fetchone()["title"]
-
-            st.success(f"✅ クエスト『{quest_title}』を承認しました！")
-            st.balloons()
-
-            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
-        else:
-            st.error("❌ 無効なトークンです。")
-            st.markdown('<script>setTimeout(function(){window.location.href=window.location.origin;}, 50000);</script>', unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -135,19 +163,23 @@ with st.sidebar:
 def load_quests_from_db():
     with get_conn() as conn:
         cur = conn.cursor()
+        current_user_id = st.session_state.get('user_id', 1)
+
         cur.execute("""
             SELECT q.quest_id, q.title, q.description, q.reward_amount, q.created_by,  
-                    qe.status, qe.assigned_to, q.created_at, q.deadline
+                    qe.execution_id,qe.status, qe.assigned_to, q.created_at, q.deadline
             FROM Quest q
             LEFT JOIN QuestExecution qe ON q.quest_id = qe.quest_id
+            WHERE q.created_by = ? OR qe.assigned_to = ?
             ORDER BY q.quest_id
-        """)
+        """, (current_user_id, current_user_id))
 
         rows = cur.fetchall()
         quests = []
         for row in rows:
             quests.append({
                 "id": row["quest_id"],
+                "execution_id": row["execution_id"],
                 "title": row["title"],
                 "description": row["description"],
                 "reward": row["reward_amount"],
@@ -205,15 +237,9 @@ if st.session_state.show_create_modal:
                 height=120, 
                 key="quest_desc_input"
             )
-            
-            requester_name = st.text_input(
-                "依頼者", 
-                placeholder="例: お母さん", 
-                key="quest_requester_input"
-            )
-            
             requester_email = st.text_input(
                 "メールアドレス", 
+                value=st.session_state.get("user_email", ""),
                 placeholder="example@email.com", 
                 key="quest_email_input"
             )
@@ -253,14 +279,16 @@ if st.session_state.show_create_modal:
                     with get_conn() as conn:
                         cur = conn.cursor()
 
-                        # Quest登録
-                        cur.execute("INSERT INTO Quest (title, description, reward_amount, created_by, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)",
-                                    (quest_title, quest_description, quest_reward, 1))
+                        # Quest登録(ログインユーザIDを使用)
+                        current_user_id = st.session_state.get('user_id', 1)
+                        cur.execute("INSERT INTO Quest (title, description, reward_amount, deadline, created_by, created_at, requester_email) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,?)",
+                                    (quest_title, quest_description, quest_reward, quest_date, current_user_id, requester_email))
                         quest_id = cur.lastrowid
 
                         # QuestExecution登録
+                        assigned_user_id = current_user_id
                         cur.execute("INSERT INTO QuestExecution (quest_id, assigned_to, status) VALUES (?,?,?)", 
-                                    (quest_id, 1, "未受注"))
+                                    (quest_id, assigned_user_id, "未受注"))
 
                     # 成功メッセージを表示して画面をリロード
                     st.success("✅ クエストが正常に発行されました！")
@@ -283,6 +311,15 @@ if st.session_state.show_create_modal:
 # =============================================================================
 # メインコンテンツ：カンバンボード表示
 # =============================================================================
+
+# 自動更新のコード部分
+if 'last_refresh' not in st.session_state:
+    st.session_state.last_refresh = time_module.time()
+
+current_time = time_module.time()
+if current_time - st.session_state.last_refresh > 5:
+    st.session_state.last_refresh = current_time
+    st.rerun()
 
 # 4列のカラムレイアウト作成
 cols = st.columns(len(statuses))
@@ -358,32 +395,18 @@ if 'selected_quest' in st.session_state:
             # ===== メール送信処理を追加 =====（約262行目）
             if old_status == "進行中" and new_status == "承認待ち":
                 try:
-                    # EmailServiceクラスを使用してメール送信
-                    from email_service import EmailService
                     email_service = EmailService()
                     
-                    # execution_idを取得（QuestExecutionテーブルから）
-                    with get_conn() as conn:
-                        cur = conn.cursor()
-                        cur.execute("""
-                            SELECT execution_id 
-                            FROM QuestExecution 
-                            WHERE quest_id = ?
-                        """, (selected['id'],))
-                        result = cur.fetchone()
-                        
-                        if result:
-                            execution_id = result["execution_id"]
-                            
-                            # EmailServiceを使ってメール送信
-                            success = email_service.send_approval_email(execution_id)
-                            
-                            if success:
-                                st.info("📧 承認依頼メールを送信しました")
-                            else:
-                                st.error("❌ メール送信に失敗しました")
-                        else:
-                            st.error("❌ 実行IDが見つかりません")
+                    # 既に取得済みのexecution_idを直接使用
+                    execution_id = selected['execution_id']
+
+                    # EmailServiceを使ってメール送信
+                    success = email_service.send_approval_email(execution_id)
+
+                    if success:
+                        st.info("📧 承認依頼メールを送信しました")
+                    else:
+                        st.error("❌ メール送信に失敗しました")
                             
                 except Exception as e:
                     st.error(f"❌ メール送信エラー: {str(e)}")
@@ -392,7 +415,7 @@ if 'selected_quest' in st.session_state:
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
-    st.rerun()
+        st.rerun()
 
 # =============================================================================
 # TODO: 他メンバーが追加する機能

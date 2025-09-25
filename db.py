@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 # DBパスの設定（環境変数 or デフォルト）
-DB_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).parent / "チャリンジャ―.db"))
+DB_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).parent / "チャリンジャー.db"))
 
 def _ensure_dir():
     """DBディレクトリが存在しない場合は作成"""

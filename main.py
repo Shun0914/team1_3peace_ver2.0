@@ -5,6 +5,8 @@ from db import get_conn
 from email_service import EmailService
 import os
 from dotenv import load_dotenv
+from auth import show_login_form, is_logged_in, logout_user
+from db import init_database
 
 # 環境変数のロード
 load_dotenv()
@@ -12,17 +14,29 @@ load_dotenv()
 # ページ設定
 st.set_page_config(page_title="チャリンジャー", page_icon=":guardsman:", layout="wide")
 
-# DB使用フラグ
-if 'use_db' not in st.session_state:
-    st.session_state.use_db = True
+# =============================================================================
+# データベースの初期化とログイン状態の確認
+# =============================================================================
+# データベースの初期化（最初に実行）
+init_database()
 
+if not is_logged_in():
+    # ログインしていない場合：ログイン画面を表示
+    show_login_form()
+    st.stop()
+    
 # ステータス一覧
 statuses = ["未受注", "進行中", "承認待ち", "完了"]
 
 query_params = st.query_params
+token = None
+
 if 'approve_token' in query_params:
     token = query_params['approve_token'][0] if isinstance(query_params['approve_token'], list) else query_params['approve_token']
+elif 'approve_token' in st.session_state:
+    token = st.session_state['approve_token']
 
+if token:
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -93,11 +107,30 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+# =============================================================================
+# ログイン後のアプリケーション
+# =============================================================================
 
-# アプリタイトル
-st.title("チャリンジャー")
-st.write("チャットボットアプリケーションへようこそ！")
+# ヘッダー部分
+# ロゴ画像を中央に配置
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    try:
+        st.image("rogo.png", width=450)
+    except FileNotFoundError:
+        # 画像が見つからない場合は元のテキストを表示
+        st.markdown("## 🔐 チャリンジャー")
 
+# ユーザー情報とログアウトボタン
+with st.sidebar:
+    if 'username' in st.session_state:
+        st.success(f"ログイン中: {st.session_state['username']}")
+        if st.button("🚪 ログアウト", key="logout_btn"):
+            logout_user()
+            st.rerun()
+    else:
+        st.info("ログインが必要です")
+        
 # DBからクエストと実行状況を取得
 def load_quests_from_db():
     with get_conn() as conn:

@@ -25,6 +25,7 @@ def init_db(db_name="チャリンジャー.db"):
         quest_id      INTEGER PRIMARY KEY AUTOINCREMENT,
         title         TEXT NOT NULL,
         description   TEXT,
+        requester_email TEXT NOT NULL,
         reward_amount INTEGER NOT NULL DEFAULT 0,
         deadline      DATETIME,
         created_by    INTEGER NOT NULL,

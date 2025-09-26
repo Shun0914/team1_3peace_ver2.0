@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date, time
 from db import get_conn
 from email_service import EmailService
+import base64
 import os
 from dotenv import load_dotenv
 from auth import show_login_form, is_logged_in, logout_user
@@ -14,6 +15,157 @@ load_dotenv()
 
 # ページ設定
 st.set_page_config(page_title="チャリンジャー", page_icon=":guardsman:", layout="wide")
+
+# CSSファイル読み込み
+def load_custom_styles():
+    st.markdown("""
+    <style>
+    /* 全体のフォント設定 */
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    }
+
+    /* 通常のボタンスタイル */
+    .stButton > button {
+        background-color: #47D7E8 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .stButton > button:hover {
+        background-color: #3bc5d8 !important;
+        box-shadow: 0 4px 8px rgba(71, 215, 232, 0.3) !important;
+    }
+
+    /* プライマリボタン（決定ボタン）スタイル */
+    .stButton > button[kind="primary"] {
+        background-color: #F85CE0 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background-color: #e64bd1 !important;
+        box-shadow: 0 4px 8px rgba(248, 92, 224, 0.3) !important;
+    }
+
+    /* フォームボタンのスタイル */
+    .stFormSubmitButton > button {
+        background-color: #F85CE0 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        width: 100% !important;
+    }
+
+    .stFormSubmitButton > button:hover {
+        background-color: #e64bd1 !important;
+        box-shadow: 0 4px 8px rgba(248, 92, 224, 0.3) !important;
+    }
+
+    /* タブスタイル */
+    .stTabs [data-baseweb="tab-list"] button {
+        background-color: #47D7E8 !important;
+        color: white !important;
+        border-radius: 8px 8px 0 0 !important;
+        border: none !important;
+        margin-right: 2px !important;
+        font-weight: bold !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] button:hover {
+        background-color: #3bc5d8 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        background-color: #F85CE0 !important;
+        color: white !important;
+    }
+
+    /* カンバンボードの列スタイル */
+    .column {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        min-height: 400px;
+        border: 1px solid #dee2e6;
+    }
+
+    /* 列ヘッダーのスタイル */
+    .column-header {
+        text-align: center;
+        padding: 10px 0;
+        font-size: 18px;
+        font-weight: bold;
+        background-color: white !important;
+        border: 2px solid #47D7E8 !important;
+        color: #488af8 !important;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+
+    /* クエストカードのスタイル */
+    .card {
+        background-color: white;
+        border: 1px solid #47D7E8 !important;
+        color: #488af8 !important;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    /* テキスト入力フィールドのスタイル */
+    .stTextInput > div > div > input {
+        border: 2px solid #47D7E8 !important;
+        border-radius: 8px !important;
+    }
+
+    .stTextArea > div > div > textarea {
+        border: 2px solid #47D7E8 !important;
+        border-radius: 8px !important;
+    }
+
+    /* セレクトボックスのスタイル */
+    .stSelectbox > div > div {
+        border: 2px solid #47D7E8 !important;
+        border-radius: 8px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+load_custom_styles()
+
+def add_background_image():
+    if os.path.exists("bg.png"):
+        with open("bg.png", "rb") as image_file:
+            encoded_bg = base64.b64encode(image_file.read()).decode()
+        
+        st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{encoded_bg}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+
+# この関数を load_custom_styles() の直後に呼び出してください
+add_background_image()
 
 # =============================================================================
 # 承認トークン処理（ログイン前に実行）
@@ -104,37 +256,7 @@ if not is_logged_in():
 # ステータス一覧
 statuses = ["未受注", "進行中", "承認待ち", "完了"]
 
-st.markdown("""
-<style>
-    /* カンバンボードの列スタイル */
-    .column {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 15px;
-        min-height: 400px;
-        border: 1px solid #dee2e6;
-    }
-    /* 列ヘッダーのスタイル */
-    .column-header {
-        text-align: center;
-        padding: 10px 0;
-        font-size: 18px;
-        font-weight: bold;
-        background-color: #e9ecef;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    /* クエストカードのスタイル */
-    .card {
-        background-color: white;
-        border-radius: 5px;
-        padding: 10px;
-        margin-bottom: 10px;
-        border: 1px solid #ddd;
-        cursor: pointer;
-    }
-</style>
-""", unsafe_allow_html=True)
+
 # =============================================================================
 # ログイン後のアプリケーション
 # =============================================================================
@@ -203,8 +325,6 @@ with col2:
     if st.button("クエスト発行する", key="create_quest_btn", type="primary", use_container_width=True):
         st.session_state.show_create_modal = True
 
-# 区切り線
-st.markdown("---")
 # =============================================================================
 # クエスト発行ポップアップ（モーダル）
 # =============================================================================
@@ -216,15 +336,14 @@ if st.session_state.show_create_modal:
     
     # タイトル表示
     with st.container():
-        st.markdown("## 🎯 新規クエスト発行")
-        st.markdown("---")
+        st.markdown("## 新規クエスト発行")
         
         # フォーム入力エリア（2列レイアウト）
         form_col1, form_col2 = st.columns([1, 1])
         
         # 左列：依頼側の情報
         with form_col1:
-            st.markdown("#### 📝 クエスト情報")
+            st.markdown("#### クエスト情報")
             quest_title = st.text_input(
                 "クエストタイトル", 
                 placeholder="例: お風呂の掃除をしてください", 
@@ -243,10 +362,10 @@ if st.session_state.show_create_modal:
                 placeholder="example@email.com", 
                 key="quest_email_input"
             )
-        
+
         # 右列：期限・報酬情報
         with form_col2:
-            st.markdown("#### ⏰ 期限・報酬")
+            st.markdown("#### 期限・報酬")
             quest_date = st.date_input(
                 "期限日", 
                 value=date.today(), 
@@ -300,11 +419,10 @@ if st.session_state.show_create_modal:
         
         with btn_col2:
             # キャンセルボタン
-            if st.button("❌ キャンセル", key="cancel_quest", use_container_width=True):
+            if st.button("キャンセル", key="cancel_quest", use_container_width=True):
                 st.session_state.show_create_modal = False
                 st.rerun()
         
-        st.markdown("---")
     
     # モーダルが表示されている時は、下のコンテンツの表示を抑制
     st.stop()
@@ -337,18 +455,17 @@ for i, status in enumerate(statuses):
         
             # 報酬の表示形式を調整（数値の場合はポイント、文字列の場合はそのまま表示）
             reward_display = f"{q['reward']}" if isinstance(q['reward'], int) else q['reward']
-
-            # HTMLカード + JavaScriptクリック処理
-            st.markdown(f'''
-            <div class="card" onclick="document.getElementById('btn_{q["id"]}').click()">
-                <h4>{q["title"]}</h4>
-                <p>報酬: {reward_display}</p>
-            </div>
-            ''', unsafe_allow_html=True)
             
-            # 隠しボタン（カードクリック時にトリガーされる）
-            if st.button("", key=f"btn_{q['id']}", help="詳細表示"):
+            quest_key = f"quest_card_{q['id']}"
+            
+            # カード形式のボタンを作成
+            if st.button(
+                f"**{q['title']}**\n\n報酬: {reward_display}",
+                key=quest_key,
+                use_container_width=True
+            ):
                 st.session_state.selected_quest = q['id']
+                st.rerun()
 
 # =============================================================================
 # 詳細モーダル表示
@@ -370,7 +487,7 @@ if 'selected_quest' in st.session_state:
             <p><strong>説明:</strong> {selected['description']}</p>
             <p><strong>報酬:</strong> {reward_display}</p>
             <p><strong>期限:</strong> {selected['deadline']}</p>
-            <p><strong>作成者:</strong> {selected['created_by']}</p>
+            <p><strong>依頼者:</strong> {selected['created_by']}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -416,10 +533,3 @@ if 'selected_quest' in st.session_state:
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
         st.rerun()
-
-# =============================================================================
-# TODO: 他メンバーが追加する機能
-# =============================================================================
-# - しゅんすけ: Gmail API連携（完了通知機能）
-# - けんた：DB連携（SQLite）
-# - りす：ログイン/ログアウト機能

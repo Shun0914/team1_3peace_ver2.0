@@ -67,9 +67,25 @@ def is_logged_in() -> bool:
     return st.session_state.get('logged_in', False)
 
 def show_login_form():
-    """ログインフォームの表示（ロゴ画像付き）"""
-    
-    # ロゴ画像を中央に配置
+    """ログインフォームの表示"""
+    st.markdown("""
+    <style>
+    .stTabs [data-baseweb="tab-list"] button {
+        font-size: 14px !important;
+        padding: 8px 16px !important;
+    }
+                
+    /* フォーム全体の背景調整 */
+    .stForm {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        border-radius: 15px !important;
+        padding: 20px !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ロゴ画像配置
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         try:

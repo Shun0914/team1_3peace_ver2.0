@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date, time
 from db import get_conn
 from email_service import EmailService
+import base64
 import os
 from dotenv import load_dotenv
 from auth import show_login_form, is_logged_in, logout_user
@@ -147,27 +148,21 @@ def load_custom_styles():
 load_custom_styles()
 
 def add_background_image():
-    import base64
-    import os
-
-    try:
-        if os.path.exists("bg.png"):
-            with open("bg.png", "rb") as image_file:
-                encoded_bg = base64.b64encode(image_file.read()).decode()
-            
-            st.markdown(f"""
-            <style>
-            .stApp {{
-                background-image: url("data:image/png;base64,{encoded_bg}");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
-            }}
-            </style>
-            """, unsafe_allow_html=True)
-    except Exception:
-        pass
+    if os.path.exists("bg.png"):
+        with open("bg.png", "rb") as image_file:
+            encoded_bg = base64.b64encode(image_file.read()).decode()
+        
+        st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{encoded_bg}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
 
 # この関数を load_custom_styles() の直後に呼び出してください
 add_background_image()
@@ -538,10 +533,3 @@ if 'selected_quest' in st.session_state:
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
         st.rerun()
-
-# =============================================================================
-# TODO: 他メンバーが追加する機能
-# =============================================================================
-# - しゅんすけ: Gmail API連携（完了通知機能）
-# - けんた：DB連携（SQLite）
-# - りす：ログイン/ログアウト機能

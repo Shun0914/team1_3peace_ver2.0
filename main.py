@@ -532,4 +532,4 @@ if 'selected_quest' in st.session_state:
         # モーダルを閉じるボタン
         if st.button("閉じる", key="close_modal"):
             del st.session_state.selected_quest
-        st.rerun()
+            st.rerun()

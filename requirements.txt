@@ -3,4 +3,3 @@ pandas>=2.0.0
 python-dotenv>=1.0.0
 Pillow>=10.0.0
 plotly>=5.15.0
-SQLite>=3.40.1

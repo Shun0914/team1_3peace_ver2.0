@@ -7,7 +7,7 @@ import base64
 import os
 from dotenv import load_dotenv
 from auth import show_login_form, is_logged_in, logout_user
-from db import init_database
+from init_db import init_db
 import time as time_module
 
 # 環境変数のロード
@@ -246,7 +246,7 @@ if token:
 # データベースの初期化とログイン状態の確認
 # =============================================================================
 # データベースの初期化（最初に実行）
-init_database()
+init_db()
 
 if not is_logged_in():
     # ログインしていない場合：ログイン画面を表示

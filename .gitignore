@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# .gitignoreファイルに以下を追加
+チャリンジャー.db
+チャリンジャー.db-*
+*.db
+*.db-shm
+*.db-wal

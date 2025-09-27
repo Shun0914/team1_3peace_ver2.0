@@ -14,7 +14,7 @@ import time as time_module
 load_dotenv()
 
 # ページ設定
-st.set_page_config(page_title="チャリンジャー", page_icon=":guardsman:", layout="wide")
+st.set_page_config(page_title="チャリンジャー", page_icon="rogo.png", layout="wide")
 
 # CSSファイル読み込み
 def load_custom_styles():

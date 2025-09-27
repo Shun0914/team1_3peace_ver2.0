@@ -174,8 +174,8 @@ streamlit run main.py
 
 | 役割 | 名前 | 担当 |
 |-----|------|------|
-| PdM | しゅんすけ | プロジェクト管理、親画面実装 |
-| Lead Designer | りす | UI/UX設計、子画面実装 |
+| PdM | しゅんすけ | プロジェクト管理、メインボード・メール機能実装 |
+| Lead Designer | りす | UI/UX設計、基本機能実装 |
 | Lead Engineer | けんた | DB設計、基盤実装 |
 
 ## 📄 ライセンス
